@@ -16,7 +16,7 @@ def read_yaml(path: str):
     :return: yaml file content, usually a dictionary
     """
 
-    with open(path) as file:
+    with open(path, encoding="utf-8") as file:
 
         return yaml.safe_load(file)
 
