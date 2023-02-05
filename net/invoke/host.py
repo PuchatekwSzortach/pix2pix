@@ -43,6 +43,7 @@ def run(context):
     command = (
         "docker run -it --rm "
         "{gpu_capabilities} "
+        "-v $PWD:/app "
         "puchatek_w_szortach/pix2pix:latest /bin/bash"
     ).format(**run_options)
 

@@ -1,5 +1,5 @@
 # syntax = docker/dockerfile:experimental
-FROM tensorflow/tensorflow:2.9.1-gpu
+FROM tensorflow/tensorflow:2.11.0-gpu
 
 # Install python environment
 COPY ./requirements.txt /tmp/requirements.txt
