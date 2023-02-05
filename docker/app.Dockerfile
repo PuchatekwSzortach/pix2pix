@@ -1,5 +1,7 @@
 # syntax = docker/dockerfile:experimental
-FROM tensorflow/tensorflow:2.9.1-gpu
+FROM tensorflow/tensorflow:2.11.0-gpu
+
+RUN apt install -y libcairo2-dev
 
 # Install python environment
 COPY ./requirements.txt /tmp/requirements.txt
