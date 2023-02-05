@@ -1,0 +1,2 @@
+data_dir_on_host: "../../data/pix2pix"
+data_dir: "/data"
