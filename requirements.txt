@@ -46,6 +46,7 @@ pylint==2.16.1
 pyparsing==3.0.9
 pytest==7.2.1
 python-apt==2.0.0+ubuntu0.20.4.8
+python-box==7.0.0
 PyYAML==6.0
 radon==5.1.0
 requests==2.22.0
