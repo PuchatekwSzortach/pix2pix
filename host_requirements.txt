@@ -1,3 +1,6 @@
+gitdb==4.0.10
+GitPython==3.1.30
 invoke==2.0.0
 python-box==7.0.0
 PyYAML==6.0
+smmap==5.0.0

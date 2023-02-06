@@ -40,6 +40,7 @@ pluggy==1.0.0
 protobuf==3.19.6
 pyasn1==0.4.8
 pyasn1-modules==0.2.8
+pycairo==1.23.0
 pycodestyle==2.10.0
 PyGObject==3.36.0
 pylint==2.16.1
@@ -64,6 +65,7 @@ tensorflow-io-gcs-filesystem==0.27.0
 termcolor==2.1.0
 tomli==2.0.1
 tomlkit==0.11.6
+tqdm==4.64.1
 typing-extensions==4.4.0
 urllib3==1.25.8
 Werkzeug==2.2.2

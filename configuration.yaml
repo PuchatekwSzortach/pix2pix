@@ -1,2 +1,10 @@
 data_dir_on_host: "../../data/pix2pix"
 data_dir: "/data"
+
+facades_dataset:
+  train_data_dir: "/data/facades/train"
+  validation_data_dir: "/data/facades/val"
+  test_data_dir: "/data/facades/test"
+
+facades_model:
+  batch_size: 4
