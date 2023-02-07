@@ -25,7 +25,8 @@ def visualize_facades_data(_context, config_path):
 
     data_loader = net.data.TwinImagesDataLoader(
         data_directory=config.facades_dataset.validation_data_dir,
-        batch_size=config.facades_model.batch_size
+        batch_size=config.facades_model.batch_size,
+        shuffle=True
     )
 
     iterator = iter(data_loader)
