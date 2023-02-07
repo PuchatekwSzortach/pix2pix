@@ -47,11 +47,13 @@ def run(context, config_path):
     }
 
     os.makedirs(config.data_dir_on_host, exist_ok=True)
+    os.makedirs(config.logging_output_directory_on_host, exist_ok=True)
 
     command = (
         "docker run -it --rm "
         "{gpu_capabilities} "
         "-v $PWD:/app "
+        f"-v {config.logging_output_directory_on_host}:{os.path.dirname(config.logging_path)} "
         f"-v {os.path.abspath(config.data_dir_on_host)}:{config.data_dir} "
         "puchatek_w_szortach/pix2pix:latest /bin/bash"
     ).format(**run_options)

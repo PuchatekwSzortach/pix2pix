@@ -16,7 +16,9 @@ class TwinImagesDataLoader:
     Yields tuples (source images, target images)
     """
 
-    def __init__(self, data_directory: str, batch_size: int, shuffle: bool):
+    def __init__(
+            self, data_directory: str, batch_size: int,
+            shuffle: bool, is_source_on_left_side: bool):
         """
         Constructor
 
@@ -24,11 +26,14 @@ class TwinImagesDataLoader:
             data_directory (str): path to data directory
             batch_size (int): batch size
             shuffle (bool): if True, images are shuffled randomly
+            is_source_on_left_side (bool): if True, it's assumed that left side of twin image represents source
+            and right side represent target, otherwise order is flipped
         """
 
         self.data_directory = data_directory
         self.batch_size = batch_size
         self.shuffle = shuffle
+        self.is_source_on_left_side = is_source_on_left_side
 
         all_twin_images_paths = sorted(glob.glob(pathname=os.path.join(data_directory, "*.jpg")))
 
@@ -71,4 +76,4 @@ class TwinImagesDataLoader:
 
                     targets.append(twin_image[:, half_width:])
 
-                yield sources, targets
+                yield (sources, targets) if self.is_source_on_left_side else (targets, sources)
