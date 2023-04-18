@@ -9,23 +9,20 @@
 	// Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
 	"dockerFile": "../docker/app.Dockerfile",
 
-	"customizations": {
-		"vscode": {
-			// Set *default* container specific settings.json values on container create.
-			"settings": {
-				"python.linting.pylintEnabled": true,
-			},
+	// Set *default* container specific settings.json values on container create.
+	"settings": {
+		"python.linting.pylintEnabled": true,
+	},
 
-			// Add the IDs of extensions you want installed when the container is created.
-			"extensions": [
-				"ms-python.vscode-pylance", // python extesion from microsoft
-				"donjayamanne.python-extension-pack", // autocomplete, pylint and other python tools
-				"njpwerner.autodocstring", // python docstrings
-				"ms-azuretools.vscode-docker", // docker autocomplete
-				"seelog.python-init-generator" // python __init__ generator
-			]
-		}
-	}
+	// Add the IDs of extensions you want installed when the container is created.
+	"extensions": [
+		"ms-python.vscode-pylance", // python extesion from microsoft
+		"donjayamanne.python-extension-pack", // autocomplete, pylint and other python tools
+		"njpwerner.autodocstring", // python docstrings
+		"ms-azuretools.vscode-docker", // docker autocomplete
+		"seelog.python-init-generator" // python __init__ generator
+	]
+
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
