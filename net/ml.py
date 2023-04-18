@@ -2,6 +2,8 @@
 Module with machine training logic
 """
 
+import typing
+
 import tensorflow as tf
 
 
@@ -10,11 +12,33 @@ class Pix2PixModel(tf.keras.Model):
     Pix2Pix model
     """
 
-    def __init__(self) -> None:
+    def __init__(self, discriminator_patch_shape: typing.Tuple[int], batch_size: int) -> None:
+        """
+        Constructor
+
+        Args:
+            discriminator_patch_shape (typing.Tuple[int]): expected shape of discriminator output for target data
+            batch_size (int): batch size
+        """
 
         super().__init__()
 
         self.generator = self._get_generator()
+        self.discriminator = self._get_discriminator()
+
+        self.generator_loss_op = self._get_generator_loss_op(
+            discriminator=self.discriminator,
+            generator=self.generator,
+            patch_shape=discriminator_patch_shape,
+            batch_size=batch_size
+        )
+
+        self.discriminator_loss_op = self._get_discriminator_loss_op(
+            discriminator=self.discriminator,
+            generator=self.generator,
+            patch_shape=discriminator_patch_shape,
+            batch_size=batch_size
+        )
 
     def call(self, *args, **kwargs):
         """
@@ -132,3 +156,142 @@ class Pix2PixModel(tf.keras.Model):
         model.compile()
 
         return model
+
+    def _get_discriminator(self) -> tf.keras.Model:
+        """
+        Get pixp2pix discriminator model
+        """
+
+        def get_discriminator_block(input_op, filters: int, stride: int, use_normalization: bool):
+            """
+            Get transformation for single discriminator block
+            """
+
+            x = tf.keras.layers.Conv2D(
+                filters=filters, kernel_size=4, strides=(stride, stride), padding="same")(input_op)
+
+            if use_normalization is True:
+                x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
+
+            x = tf.keras.layers.LeakyReLU(alpha=0.2)(x)
+
+            return x
+
+        image_shape = None, None, 3
+
+        source_image_input_op = tf.keras.layers.Input(image_shape)
+        target_image_input_op = tf.keras.layers.Input(image_shape)
+
+        combined_images_op = tf.keras.layers.Concatenate(axis=-1)([source_image_input_op, target_image_input_op])
+
+        x = get_discriminator_block(input_op=combined_images_op, filters=64, stride=2, use_normalization=False)
+        x = get_discriminator_block(input_op=x, filters=128, stride=2, use_normalization=True)
+        x = get_discriminator_block(input_op=x, filters=256, stride=2, use_normalization=True)
+        x = get_discriminator_block(input_op=x, filters=512, stride=1, use_normalization=True)
+
+        output_op = tf.keras.layers.Conv2D(filters=1, kernel_size=4, strides=(1, 1), padding="same")(x)
+
+        return tf.keras.models.Model([source_image_input_op, target_image_input_op], output_op)
+
+    def _get_generator_loss_op(
+            self, discriminator: tf.keras.Model, generator: tf.keras.Model,
+            patch_shape: typing.Tuple[int], batch_size: int) -> tf.Tensor:
+        """
+        Get pix2pix generator loss operation
+
+        Args:
+            discriminator (tf.keras.Model): pix2pix discriminator
+            generator (tf.keras.Model): pix2pix generator
+            patch_shape (typing.Tuple[int]): shape of discriminator's output for data on which model is to be trained
+            batch_size (int): batch size
+
+        Returns:
+            tf.Tensor: generator loss operation
+        """
+
+        discriminator_loss_op = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+        image_condition_loss_op = tf.keras.losses.MeanAbsoluteError()
+
+        all_ones_patch = tf.repeat(tf.ones(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
+
+        @tf.function
+        def loss_op(source_images, target_images):
+            """
+            Generator loss op
+
+            Args:
+                source_images (tf.Tensor): tensor with source images
+                target_images (tf.Tensor): target with target images
+
+            Returns:
+                tf.Tensor: scalar loss
+            """
+
+            generated_images = generator(source_images, training=True)
+
+            discriminator_predictions = discriminator(
+                [source_images, generated_images],
+                training=False)
+
+            discriminator_fooling_loss = discriminator_loss_op(all_ones_patch, discriminator_predictions)
+
+            image_similarity_loss = image_condition_loss_op(target_images, generated_images)
+
+            return discriminator_fooling_loss + (100.0 * image_similarity_loss)
+
+        return loss_op
+
+    def _get_discriminator_loss_op(
+            self, discriminator: tf.keras.Model, generator: tf.keras.Model,
+            patch_shape: typing.Tuple[int], batch_size: int) -> tf.Tensor:
+        """
+        Get pix2pix discriminator loss operation
+
+        Args:
+            discriminator (tf.keras.Model): pix2pix discriminator
+            generator (tf.keras.Model): pix2pix generator
+            patch_shape (typing.Tuple[int]): shape of discriminator's output for data on which model is to be trained
+            batch_size (int): batch size
+
+        Returns:
+            tf.Tensor: discriminator loss operation
+        """
+
+        all_ones_patch = tf.repeat(tf.ones(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
+        all_zeros_patch = tf.repeat(tf.zeros(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
+
+        labels = tf.concat(
+            [
+                all_ones_patch,
+                all_zeros_patch
+            ], axis=0
+        )
+
+        base_loss_op = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+
+        @tf.function
+        def loss_op(source_images, target_images):
+            """
+            Discriminator loss op
+
+            Args:
+                source_images (tf.Tensor): tensor with source images
+                target_images (tf.Tensor): target with target images
+
+            Returns:
+                tf.Tensor: scalar loss
+            """
+
+            generated_images = generator(source_images, training=False)
+
+            discriminator_predictions = discriminator(
+                [
+                    tf.concat([source_images, source_images], axis=0),
+                    tf.concat([target_images, generated_images], axis=0)
+                ],
+                training=True
+            )
+
+            return base_loss_op(labels, discriminator_predictions)
+
+        return loss_op

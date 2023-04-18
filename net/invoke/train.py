@@ -6,24 +6,29 @@ import invoke
 
 
 @invoke.task
-def train_facades_gan(_context):
+def train_facades_gan(_context, config_path):
     """
     Train GAN model on facades dataset.
     Generator tries to learn to generate real facades photos from facades segmentations
 
     Args:
         _context (invoke.Context): context instance
+        config_path (str): path to configuration file
     """
 
+    import box
     import icecream
-    import numpy as np
 
     import net.ml
+    import net.utilities
 
-    pix2pix = net.ml.Pix2PixModel()
+    config = box.Box(net.utilities.read_yaml(config_path))
 
-    data = np.zeros((2, 256, 256, 3))
-    icecream.ic(data.shape)
+    discriminator_patch_shape = 1, config.facades_model.image_shape[0] // 8, config.facades_model.image_shape[1] // 8
 
-    output = pix2pix.generator.predict(data, verbose=False)
-    icecream.ic(output.shape)
+    pix2pix = net.ml.Pix2PixModel(
+        discriminator_patch_shape=discriminator_patch_shape,
+        batch_size=config.facades_model.batch_size,
+    )
+
+    icecream.ic(pix2pix)
