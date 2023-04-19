@@ -28,7 +28,9 @@ def visualize_facades_data(_context, config_path):
         data_directory=config.facades_dataset.validation_data_dir,
         batch_size=config.facades_model.batch_size,
         shuffle=True,
-        is_source_on_left_side=False
+        is_source_on_left_side=False,
+        use_augmentations=False,
+        augmentation_parameters=None
     )
 
     iterator = iter(data_loader)
