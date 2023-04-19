@@ -40,6 +40,9 @@ class Pix2PixModel(tf.keras.Model):
             batch_size=batch_size
         )
 
+        self.discriminator_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0002, beta_1=0.5)
+        self.generator_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0002, beta_1=0.5)
+
     def call(self, *args, **kwargs):
         """
         We don't actually need this, but we need to implement it to make Keras happy
@@ -295,3 +298,41 @@ class Pix2PixModel(tf.keras.Model):
             return base_loss_op(labels, discriminator_predictions)
 
         return loss_op
+
+    def train_step(self, data):
+        """
+        Manual train step
+        """
+
+        source_images, target_images = data
+
+        self.discriminator.trainable = True
+        self.generator.trainable = False
+
+        with tf.GradientTape() as discriminator_tape:
+
+            discriminator_loss = self.discriminator_loss_op(
+                source_images=source_images,
+                target_images=target_images
+            )
+
+        self.discriminator_optimizer.minimize(
+            discriminator_loss, self.discriminator.trainable_variables, tape=discriminator_tape)
+
+        self.discriminator.trainable = False
+        self.generator.trainable = True
+
+        with tf.GradientTape() as generator_tape:
+
+            generator_loss = self.generator_loss_op(
+                source_images=source_images,
+                target_images=target_images
+            )
+
+        self.generator_optimizer.minimize(
+            generator_loss, self.generator.trainable_variables, tape=generator_tape)
+
+        self.discriminator.trainable = False
+        self.generator.trainable = False
+
+        return {"generator_loss": generator_loss, "discriminator_loss": discriminator_loss}

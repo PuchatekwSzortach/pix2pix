@@ -7,6 +7,7 @@ import os
 import random
 
 import cv2
+import imgaug
 import more_itertools
 
 
@@ -18,7 +19,8 @@ class TwinImagesDataLoader:
 
     def __init__(
             self, data_directory: str, batch_size: int,
-            shuffle: bool, is_source_on_left_side: bool):
+            shuffle: bool, is_source_on_left_side: bool,
+            use_augmentations: bool, augmentation_parameters: dict):
         """
         Constructor
 
@@ -28,6 +30,8 @@ class TwinImagesDataLoader:
             shuffle (bool): if True, images are shuffled randomly
             is_source_on_left_side (bool): if True, it's assumed that left side of twin image represents source
             and right side represent target, otherwise order is flipped
+            use_augmentations (bool): if True, images augmentation is used when drawing samples
+            augmentation_parameters (dict): augmentation parameters
         """
 
         self.data_directory = data_directory
@@ -41,6 +45,17 @@ class TwinImagesDataLoader:
         # number of batches
         target_elements_count = len(all_twin_images_paths) // self.batch_size
         self.twin_images_paths = all_twin_images_paths[:target_elements_count]
+
+        self.use_augmentations = use_augmentations
+
+        self.augmentation_pipline = imgaug.augmenters.Sequential([
+            imgaug.augmenters.Fliplr(p=0.5),
+            imgaug.augmenters.Resize(augmentation_parameters["resized_image_shape"]),
+            imgaug.augmenters.CropToFixedSize(
+                width=augmentation_parameters["image_shape"][0],
+                height=augmentation_parameters["image_shape"][1]
+            )
+        ]) if use_augmentations is True else None
 
     def __len__(self) -> int:
         """
@@ -75,5 +90,12 @@ class TwinImagesDataLoader:
                     )
 
                     targets.append(twin_image[:, half_width:])
+
+                if self.use_augmentations is True:
+
+                    sources, targets = self.augmentation_pipline(
+                        images=sources,
+                        segmentation_maps=targets
+                    )
 
                 yield (sources, targets) if self.is_source_on_left_side else (targets, sources)
