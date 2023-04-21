@@ -2,9 +2,13 @@
 Module with machine training logic
 """
 
+import shutil
 import typing
 
 import tensorflow as tf
+
+import net.processing
+import net.utilities
 
 
 class Pix2PixModel(tf.keras.Model):
@@ -336,3 +340,108 @@ class Pix2PixModel(tf.keras.Model):
         self.generator.trainable = False
 
         return {"generator_loss": generator_loss, "discriminator_loss": discriminator_loss}
+
+
+class GeneratorVisualizationCallback(tf.keras.callbacks.Callback):
+    """
+    Keras callback that visualizes generator output once every specified number of batches
+    """
+
+    def __init__(
+            self, generator: tf.keras.Model,
+            logger: net.utilities.ImagesLogger, data_iterator, logging_interval: int):
+        """
+        Constructor
+
+        Args:
+            generator (tf.keras.Model): generator model
+            logger (photobridge.utilities.ImagesLogger): logger instance
+            data_iterator: iterator that yields sources and targets images batches
+            logging_interval (int): number of batches between logging
+        """
+
+        super().__init__()
+
+        self.generator = generator
+        self.logger = logger
+        self.data_iterator = data_iterator
+        self.logging_interval = logging_interval
+
+        self.epoch_counter = 0
+        self.batches_counter = 0
+
+    def on_epoch_end(self, epoch: int, logs=None):
+        """
+        On epoch end callback
+        """
+
+        self.epoch_counter += 1
+
+    def on_train_batch_end(self, batch, logs=None):
+        """
+        Visualize generator output once every x batches
+        """
+
+        if self.batches_counter == self.logging_interval:
+
+            sources, targets = next(self.data_iterator)
+            fake_targets = self.generator.predict(sources, verbose=False)
+
+            for triplet_index, triplets in enumerate(zip(sources, fake_targets, targets)):
+
+                title = (
+                    f"Epoch {self.epoch_counter}, batch {batch} - "
+                    f"sources / fake targets / targets - triplet number {triplet_index}"
+                )
+
+                self.logger.log_images(
+                    title=title,
+                    images=net.processing.ImageProcessor.denormalize_batch(triplets)
+                )
+
+            # Reset batch counter
+            self.batches_counter = 0
+
+        else:
+
+            self.batches_counter += 1
+
+
+class ModelCheckpoint(tf.keras.callbacks.Callback):
+    """
+    Callback for periodically saving model provided in constructor - so a bit different from keras' ModelCheckpoint
+    """
+
+    def __init__(self, target_model: tf.keras.Model, checkpoint_path: str, saving_interval_in_steps: int):
+        """
+        Constructor
+
+        Args:
+            model (tf.keras.Model): model to save
+            checkpoint_path (str): path to save model at
+            saving_interval_in_steps (int): specifies how often model should be saved
+        """
+
+        super().__init__()
+
+        self.target_model = target_model
+        self.checkpoint_path = checkpoint_path
+        self.saving_interval_in_steps = saving_interval_in_steps
+
+        self.steps_counter = 0
+
+    def on_train_batch_end(self, batch, logs=None):
+        """
+        On train batch end callback, saves model if specified number of steps has passed since last save
+        """
+
+        if self.steps_counter == self.saving_interval_in_steps:
+
+            shutil.rmtree(self.checkpoint_path, ignore_errors=True)
+            self.target_model.save(self.checkpoint_path, save_format="h5")
+
+            self.steps_counter = 0
+
+        else:
+
+            self.steps_counter += 1

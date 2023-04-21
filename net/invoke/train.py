@@ -16,6 +16,8 @@ def train_facades_gan(_context, config_path):
         config_path (str): path to configuration file
     """
 
+    import os
+
     import box
     import tensorflow as tf
 
@@ -46,6 +48,27 @@ def train_facades_gan(_context, config_path):
         )
     ).prefetch(32)
 
+    validation_data_loader = net.data.TwinImagesDataLoader(
+        data_directory=config.facades_dataset.validation_data_dir,
+        batch_size=config.facades_model.batch_size,
+        shuffle=True,
+        is_source_on_left_side=False,
+        use_augmentations=False,
+        augmentation_parameters=None
+    )
+
+    validation_dataset = tf.data.Dataset.from_generator(
+        generator=lambda: iter(validation_data_loader),
+        output_types=(
+            tf.float32,
+            tf.float32
+        ),
+        output_shapes=(
+            tf.TensorShape([None, None, None, 3]),
+            tf.TensorShape([None, None, None, 3]),
+        )
+    ).prefetch(32)
+
     discriminator_patch_shape = 1, config.facades_model.image_shape[0] // 8, config.facades_model.image_shape[1] // 8
 
     pix2pix = net.ml.Pix2PixModel(
@@ -59,4 +82,21 @@ def train_facades_gan(_context, config_path):
         x=training_dataset,
         steps_per_epoch=len(training_data_loader),
         epochs=config.facades_model.epochs,
+        callbacks=[
+            net.ml.GeneratorVisualizationCallback(
+                generator=pix2pix.generator,
+                logger=net.utilities.get_images_logger(
+                    path=config.logging_path,
+                    images_directory=os.path.join(os.path.dirname(config.logging_path), "images"),
+                    images_html_path_prefix="images"
+                ),
+                data_iterator=iter(validation_dataset),
+                logging_interval=200
+            ),
+            net.ml.ModelCheckpoint(
+                target_model=pix2pix.generator,
+                checkpoint_path=config.facades_model.generator_model_path,
+                saving_interval_in_steps=500
+            )
+        ]
     )
