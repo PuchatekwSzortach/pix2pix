@@ -15,11 +15,13 @@ def visualize_facades_data(_context, config_path):
         config_path (str): path to configuration file
     """
 
+    import os
+
     import box
     import tqdm
-    import vlogging
 
     import net.data
+    import net.processing
     import net.utilities
 
     config = box.Box(net.utilities.read_yaml(config_path))
@@ -34,11 +36,23 @@ def visualize_facades_data(_context, config_path):
     )
 
     iterator = iter(data_loader)
-    logger = net.utilities.get_logger(path=config.logging_path)
+
+    logger = net.utilities.get_images_logger(
+        path=config.logging_path,
+        images_directory=os.path.join(os.path.dirname(config.logging_path), "images"),
+        images_html_path_prefix="images"
+    )
 
     for _ in tqdm.tqdm(range(4)):
 
         sources, targets = next(iterator)
 
-        logger.info(vlogging.VisualRecord(title="sources", imgs=sources))
-        logger.info(vlogging.VisualRecord(title="targets", imgs=targets))
+        logger.log_images(
+            title="sources",
+            images=net.processing.ImageProcessor.denormalize_batch(sources)
+        )
+
+        logger.log_images(
+            title="targets",
+            images=net.processing.ImageProcessor.denormalize_batch(targets)
+        )

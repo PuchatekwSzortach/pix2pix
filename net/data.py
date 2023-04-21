@@ -10,6 +10,8 @@ import cv2
 import imgaug
 import more_itertools
 
+import net.processing
+
 
 class TwinImagesDataLoader:
     """
@@ -98,4 +100,8 @@ class TwinImagesDataLoader:
                         segmentation_maps=targets
                     )
 
-                yield (sources, targets) if self.is_source_on_left_side else (targets, sources)
+                batches_pair = (sources, targets) if self.is_source_on_left_side else (targets, sources)
+
+                yield \
+                    net.processing.ImageProcessor.normalize_batch(batches_pair[0]), \
+                    net.processing.ImageProcessor.normalize_batch(batches_pair[1])
