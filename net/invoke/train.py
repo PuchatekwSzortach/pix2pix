@@ -83,20 +83,19 @@ def train_facades_gan(_context, config_path):
         steps_per_epoch=len(training_data_loader),
         epochs=config.facades_model.epochs,
         callbacks=[
-            net.ml.GeneratorVisualizationCallback(
-                generator=pix2pix.generator,
-                logger=net.utilities.get_images_logger(
-                    path=config.logging_path,
-                    images_directory=os.path.join(os.path.dirname(config.logging_path), "images"),
-                    images_html_path_prefix="images"
-                ),
-                data_iterator=iter(validation_dataset),
-                logging_interval=200
-            ),
             net.ml.ModelCheckpoint(
                 target_model=pix2pix.generator,
                 checkpoint_path=config.facades_model.generator_model_path,
                 saving_interval_in_steps=500
+            ),
+            net.ml.VisualizationArchivesBuilderCallback(
+                generator=pix2pix.generator,
+                data_iterator=iter(validation_dataset),
+                output_directory=os.path.dirname(config.logging_path),
+                file_name="archive",
+                logging_interval=200,
+                max_archive_size_in_bytes=100 * 1024 * 1024,
+                max_archives_count=10
             )
         ]
     )

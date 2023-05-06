@@ -2,6 +2,10 @@
 Module with data processing utilities
 """
 
+import io
+import tarfile
+
+import cv2
 import numpy as np
 
 
@@ -78,3 +82,27 @@ class ImageProcessor:
         """
 
         return np.array([ImageProcessor.denormalize_image(image) for image in batch])
+
+
+def get_image_tar_map(image: np.ndarray, name: str) -> dict:
+    """
+    Get image tar map for given image and name
+
+    Args:
+        image (np.ndarray): image to compute tar file for
+        name (str): name to be used in tar file
+
+    Returns:
+        dict: map with keys "tar_info" and "bytes"
+    """
+
+    _, jpg_bytes = cv2.imencode(".jpg", image)
+
+    # Create tar info for image
+    tar_info = tarfile.TarInfo(name=name)
+    tar_info.size = len(jpg_bytes)
+
+    return {
+        "tar_info": tar_info,
+        "bytes": io.BytesIO(jpg_bytes)
+    }

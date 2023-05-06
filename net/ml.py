@@ -2,9 +2,14 @@
 Module with machine training logic
 """
 
+import glob
+import os
 import shutil
+import tarfile
+import tempfile
 import typing
 
+import numpy as np
 import tensorflow as tf
 
 import net.processing
@@ -396,7 +401,7 @@ class GeneratorVisualizationCallback(tf.keras.callbacks.Callback):
 
                 self.logger.log_images(
                     title=title,
-                    images=net.processing.ImageProcessor.denormalize_batch(triplets)
+                    images=net.processing.ImageProcessor.denormalize_batch(np.array(triplets))
                 )
 
             # Reset batch counter
@@ -445,3 +450,151 @@ class ModelCheckpoint(tf.keras.callbacks.Callback):
         else:
 
             self.steps_counter += 1
+
+
+class VisualizationArchivesBuilderCallback(tf.keras.callbacks.Callback):
+    """
+    Keras callback that every few batches runs predictions on source images,
+    then saves sources, fake targets and targets into an uncompressed tar archive.
+    Once archive exceeds specified size, it's closed and rotated.
+    Only max_archives_count archives are kept, and archives older than that are deleted.
+    """
+
+    def __init__(
+            self, generator: tf.keras.Model, data_iterator,
+            output_directory: str, file_name: str, logging_interval: int,
+            max_archive_size_in_bytes: int, max_archives_count: int):
+        """
+        Constructor.
+        Note - constructor will delete any old archives matching pattern "output_directory/filename*.tar"
+
+        Args:
+            generator (tf.keras.Model): generator model
+            data_iterator: iterator that yields sources and targets images batches
+            output_directory (str): directory where archives will be saved
+            file_name (str): name of archive file, without extension. Extension will be .tar, and rotated archives
+            will have numbers appended to them (e.g. archive.1.tar, archive.2.tar, etc.)
+            logging_interval (int): number of batches between logging
+            max_archive_size_in_bytes (int): maximum size of archive in bytes,
+            once archive reaches this size, it's closed and rotated
+            max_archives_count (int): maximum number of archives to keep,
+            once this number is reached, oldest archive is deleted
+        """
+
+        super().__init__()
+
+        self.generator = generator
+        self.output_directory = output_directory
+        self.file_name = file_name
+        self.data_iterator = data_iterator
+
+        self.numeric_constraints_map = {
+            "logging_interval": logging_interval,
+            "max_archive_size_in_bytes": max_archive_size_in_bytes,
+            "max_archives_count": max_archives_count
+        }
+
+        self.counters_map = {
+            "epoch": 0,
+            "batch": 0
+        }
+
+        self.tar_data = {
+            "base_archive_path": os.path.join(self.output_directory, f"{self.file_name}.tar"),
+            "tar_files_maps": []
+        }
+
+        # Delete any old archives
+        for file_path in glob.glob(f"{self.output_directory}/{self.file_name}*.tar"):
+            os.remove(file_path)
+
+    def _rotate_archives(self):
+        """
+        Rotate archives
+        """
+
+        # Get list of archive files
+        sorted_archives_files_paths = sorted(glob.glob(os.path.join(self.output_directory, f"{self.file_name}.*.tar")))
+
+        # We only want to keep max_archives_count, so that means that won't be
+        # backing up oldest one - it will instead be overwritten by next oldest archive
+        archive_files_paths_to_keep = sorted_archives_files_paths[
+            :self.numeric_constraints_map["max_archives_count"] - 1]
+
+        # Go over archives to keep after rotation from oldest to youngest
+        for rotated_archive_path in reversed(archive_files_paths_to_keep):
+
+            # Get index of archive
+            index = int(os.path.basename(rotated_archive_path).split(".")[-2])
+
+            new_archive_path = os.path.join(self.output_directory, f"{self.file_name}.{index + 1}.tar")
+
+            # Move archive to next index
+            os.rename(rotated_archive_path, new_archive_path)
+
+        # Move latest archive to index 1
+        os.rename(self.tar_data["base_archive_path"], os.path.join(self.output_directory, f"{self.file_name}.1.tar"))
+
+    def on_epoch_end(self, epoch: int, logs=None):
+        """
+        On epoch end callback
+        """
+
+        self.counters_map["epoch"] += 1
+
+    def on_train_batch_end(self, batch, logs=None):
+        """
+        Visualize generator output once every x batches
+        """
+
+        if self.counters_map["batch"] == self.numeric_constraints_map["logging_interval"]:
+
+            should_rotate_archives = \
+                os.path.exists(self.tar_data["base_archive_path"]) and \
+                os.path.getsize(
+                    self.tar_data["base_archive_path"]) > self.numeric_constraints_map["max_archive_size_in_bytes"]
+
+            # If archive is too big, rotate archive files and clear tar files maps
+            if should_rotate_archives:
+
+                self._rotate_archives()
+                self.tar_data["tar_files_maps"].clear()
+
+            sources, targets = next(self.data_iterator)
+            fake_targets = self.generator.predict(sources, verbose=False)
+
+            # Compute tar files maps for all triplets
+            for triplet_index, triplet in enumerate(zip(sources, fake_targets, targets)):
+
+                normalized_triplet = net.processing.ImageProcessor.denormalize_batch(np.array(triplet))
+
+                self.tar_data["tar_files_maps"].extend([
+                    net.processing.get_image_tar_map(
+                        image=image,
+                        name=f"epoch_{self.counters_map['epoch']}_batch_{batch}_index_{triplet_index}_{name}.jpg"
+                    ) for image, name in zip(normalized_triplet, ["a_source", "b_fake_target", "c_target"])
+                ])
+
+            # Create temporary directory
+            with tempfile.TemporaryDirectory() as tmp_dir:
+
+                temporary_archive_path = os.path.join(tmp_dir, "archive.tar")
+
+                # Create tarfile object in temporary directory
+                with tarfile.open(name=temporary_archive_path, mode="x") as tar:
+
+                    # Add all tar files maps to tar file
+                    for tar_file_map in self.tar_data["tar_files_maps"]:
+
+                        tar_file_map["bytes"].seek(0)
+                        tar.addfile(tarinfo=tar_file_map["tar_info"], fileobj=tar_file_map["bytes"])
+
+                # Move temporary file to target path
+                os.rename(temporary_archive_path, self.tar_data["base_archive_path"])
+
+            # Reset batch counter
+            self.counters_map["batch"] = 0
+
+        else:
+
+            self.counters_map["batch"] += 1
