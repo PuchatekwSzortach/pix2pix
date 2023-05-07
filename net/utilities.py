@@ -17,6 +17,25 @@ import numpy as np
 import yaml
 
 
+def get_logger(path: str) -> logging.Logger:
+    """
+    Returns a logger configured to write to a file
+    :param path: path to file logger should write to
+    :return: logger instance
+    """
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    logger = logging.getLogger("image_retrieval")
+    file_handler = logging.FileHandler(path, mode="w")
+
+    logger.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
+    logger.propagate = False
+
+    return logger
+
+
 class CustomRotatingFileHandler(logging.handlers.RotatingFileHandler):
     """
     Rotating file handler with a custom file naming scheme

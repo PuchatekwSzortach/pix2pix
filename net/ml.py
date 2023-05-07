@@ -149,7 +149,7 @@ class Pix2PixModel(tf.keras.Model):
                 input_op=upscale_ops[5 - index],
                 skip_input=downscale_ops[4 - index],
                 filters=filters_count,
-                use_dropout=True
+                use_dropout=False
             )
 
         x = tf.keras.layers.ReLU()(upscale_ops[1])
