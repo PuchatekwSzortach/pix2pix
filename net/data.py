@@ -5,6 +5,7 @@ Module with data IO logic
 import glob
 import os
 import random
+import typing
 
 import cv2
 import imgaug
@@ -22,7 +23,7 @@ class TwinImagesDataLoader:
     def __init__(
             self, data_directory: str, batch_size: int,
             shuffle: bool, is_source_on_left_side: bool,
-            use_augmentations: bool, augmentation_parameters: dict):
+            use_augmentations: bool, augmentation_parameters: typing.Union[dict, None]):
         """
         Constructor
 
@@ -33,7 +34,8 @@ class TwinImagesDataLoader:
             is_source_on_left_side (bool): if True, it's assumed that left side of twin image represents source
             and right side represent target, otherwise order is flipped
             use_augmentations (bool): if True, images augmentation is used when drawing samples
-            augmentation_parameters (dict): augmentation parameters
+            augmentation_parameters (typing.Union[dict, None]): augmentation parameters or None if use_augmentations
+            is False
         """
 
         self.data_directory = data_directory
@@ -45,7 +47,7 @@ class TwinImagesDataLoader:
 
         # Prune all twin image paths so we have number of elements that can be cleanly split into
         # number of batches
-        target_elements_count = len(all_twin_images_paths) // self.batch_size
+        target_elements_count = (len(all_twin_images_paths) // self.batch_size) * self.batch_size
         self.twin_images_paths = all_twin_images_paths[:target_elements_count]
 
         self.use_augmentations = use_augmentations
