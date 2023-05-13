@@ -19,3 +19,18 @@ facades_model:
     resized_image_shape: [286, 286]
 
   generator_model_path: "/data/facades_generator.h5"
+
+maps_dataset:
+  training_data_dir: "/data/maps/train"
+  validation_data_dir: "/data/maps/val"
+
+maps_model:
+  batch_size: 2
+  epochs: 100
+  image_shape: [256, 256, 3]
+
+  data_augmentation_parameters:
+    image_shape: [256, 256, 3]
+    resized_image_shape: [286, 286]
+
+  generator_model_path: "/data/maps_generator.h5"
