@@ -65,7 +65,7 @@ class Pix2PixModel(tf.keras.Model):
 
         input_op = tf.keras.layers.Input(shape=(None, None, 3))
 
-        x = tf.keras.layers.Conv2D(filters=64, kernel_size=4, strides=2, padding="same")(input_op)
+        x = tf.keras.layers.Conv2D(filters=64, kernel_size=4, strides=(2, 2), padding="same")(input_op)
 
         def downscale_block(input_op, filters: int, use_activation: bool, use_normalization: bool):
             """
@@ -97,12 +97,12 @@ class Pix2PixModel(tf.keras.Model):
                 strides=(2, 2),
                 padding="same")(x)
 
-            x = tf.keras.layers.Concatenate()([x, skip_input])
-
             x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
 
             if use_dropout is True:
                 x = tf.keras.layers.Dropout(rate=0.5)(x)
+
+            x = tf.keras.layers.Concatenate()([x, skip_input])
 
             return x
 

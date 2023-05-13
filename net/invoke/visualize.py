@@ -110,3 +110,55 @@ def facades_model_predictions(_context, config_path):
                     )
                 )
             )
+
+
+@invoke.task
+def visualize_maps_data(_context, config_path):
+    """
+    Visualize maps data
+
+    Args:
+        _context (invoke.Context): context instance
+        config_path (str): path to configuration file
+    """
+
+    import os
+
+    import box
+    import numpy as np
+    import tqdm
+
+    import net.data
+    import net.processing
+    import net.utilities
+
+    config = box.Box(net.utilities.read_yaml(config_path))
+
+    data_loader = net.data.TwinImagesDataLoader(
+        data_directory=config.maps_dataset.validation_data_dir,
+        batch_size=config.maps_model.batch_size,
+        shuffle=True,
+        is_source_on_left_side=True,
+        target_size=config.maps_model.image_shape[:2],
+        use_augmentations=False,
+        augmentation_parameters=None
+    )
+
+    iterator = iter(data_loader)
+
+    logger = net.utilities.get_images_logger(
+        path=config.logging_path,
+        images_directory=os.path.join(os.path.dirname(config.logging_path), "images"),
+        images_html_path_prefix="images"
+    )
+
+    for _ in tqdm.tqdm(range(4)):
+
+        sources, targets = next(iterator)
+
+        for pair in zip(sources, targets):
+
+            logger.log_images(
+                title="source, target",
+                images=net.processing.ImageProcessor.denormalize_batch(np.array(pair))
+            )
