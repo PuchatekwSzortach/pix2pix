@@ -16,6 +16,114 @@ import net.processing
 import net.utilities
 
 
+class GeneratorBuilder:
+    """
+    Class for building various pieces of pix2pix generator
+    """
+
+    def get_innermost_block(self, input_channels, filters) -> tf.keras.Model:
+        """
+        Function to build innermost block model
+        """
+
+        input_op = tf.keras.layers.Input(shape=(None, None, input_channels))
+
+        x = self.downscale_block(
+            input_op=input_op,
+            filters=filters,
+            use_normalization=False)
+
+        x = self.upscale_block(
+            input_op=x,
+            filters=input_channels,
+            use_dropout=False)
+
+        output_op = tf.keras.layers.Concatenate()([x, input_op])
+
+        return tf.keras.Model(inputs=input_op, outputs=output_op)
+
+    def get_outermost_block(self, submodule: tf.keras.Model) -> tf.keras.Model:
+        """
+        Function to build outermost block model
+        """
+
+        input_op = tf.keras.layers.Input(shape=(None, None, 3))
+
+        x = tf.keras.layers.Conv2D(filters=64, kernel_size=4, strides=(2, 2), padding="same")(input_op)
+        x = submodule(x)
+        x = tf.keras.layers.ReLU()(x)
+
+        # Output is same as input
+        output_op = tf.keras.layers.Conv2DTranspose(
+            filters=3,
+            kernel_size=4,
+            strides=(2, 2),
+            padding="same",
+            activation="tanh")(x)
+
+        return tf.keras.models.Model(input_op, output_op)
+
+    def get_intermediate_block(
+            self, input_channels, filters, use_dropout, submodule: tf.keras.Model) -> tf.keras.Model:
+        """
+        Function to build intermediate block model
+
+        Returns:
+            tf.keras.Model: keras model for the block
+        """
+
+        input_op = tf.keras.layers.Input(shape=(None, None, input_channels))
+
+        x = self.downscale_block(
+            input_op=input_op,
+            filters=filters,
+            use_normalization=True)
+
+        x = submodule(x)
+
+        upscale_op = self.upscale_block(
+            input_op=x,
+            filters=input_channels,
+            use_dropout=use_dropout)
+
+        output_op = tf.keras.layers.Concatenate()([upscale_op, input_op])
+
+        return tf.keras.Model(inputs=input_op, outputs=output_op)
+
+    def downscale_block(self, input_op, filters: int, use_normalization: bool):
+        """
+        Downscale block
+        """
+
+        x = tf.keras.layers.LeakyReLU(alpha=0.2)(input_op)
+        x = tf.keras.layers.Conv2D(filters=filters, kernel_size=4, strides=(2, 2), padding="same")(x)
+
+        if use_normalization is True:
+            x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
+
+        return x
+
+    def upscale_block(self, input_op, filters: int, use_dropout: bool):
+        """
+        Upscale block
+        """
+
+        x = tf.keras.layers.ReLU()(input_op)
+
+        x = tf.keras.layers.Conv2DTranspose(
+            filters=filters,
+            kernel_size=4,
+            strides=(2, 2),
+            padding="same")(x)
+
+        x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
+
+        if use_dropout is True:
+            x = tf.keras.layers.Dropout(rate=0.5)(x)
+
+        return x
+
+
 class Pix2PixModel(tf.keras.Model):
     """
     Pix2Pix model
@@ -60,114 +168,64 @@ class Pix2PixModel(tf.keras.Model):
 
     def _get_generator(self) -> tf.keras.Model:
         """
-        Get pixp2pix generator model
+        Get generator model
+
+        Returns:
+            tf.keras.Model: generator model
         """
 
-        input_op = tf.keras.layers.Input(shape=(None, None, 3))
+        generator_builder = GeneratorBuilder()
 
-        x = tf.keras.layers.Conv2D(filters=64, kernel_size=4, strides=(2, 2), padding="same")(input_op)
-
-        def downscale_block(input_op, filters: int, use_activation: bool, use_normalization: bool):
-            """
-            Downscale block
-            """
-
-            x = input_op
-
-            if use_activation is True:
-                x = tf.keras.layers.LeakyReLU(alpha=0.2)(x)
-
-            x = tf.keras.layers.Conv2D(filters=filters, kernel_size=4, strides=(2, 2), padding="same")(input_op)
-
-            if use_normalization is True:
-                x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
-
-            return x
-
-        def upscale_block(input_op, skip_input: bool, filters: int, use_dropout: bool):
-            """
-            Upscale block
-            """
-
-            x = tf.keras.layers.ReLU()(input_op)
-
-            x = tf.keras.layers.Conv2DTranspose(
-                filters=filters,
-                kernel_size=4,
-                strides=(2, 2),
-                padding="same")(x)
-
-            x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
-
-            if use_dropout is True:
-                x = tf.keras.layers.Dropout(rate=0.5)(x)
-
-            x = tf.keras.layers.Concatenate()([x, skip_input])
-
-            return x
-
-        downscale_ops = {
-            # Output is 2x smaller
-            1: downscale_block(input_op=input_op, filters=64, use_activation=False, use_normalization=False)
+        blocks = {
+            8: generator_builder.get_innermost_block(input_channels=512, filters=512)
         }
 
-        filters_counts = [128, 256, 512, 512, 512, 512]
-
-        for index, filters_count in enumerate(filters_counts):
-
-            downscale_ops[index + 2] = downscale_block(
-                input_op=downscale_ops[index + 1],
-                filters=filters_count,
-                use_activation=True,
-                use_normalization=True
-            )
-
-        innermost_layer = downscale_block(
-            input_op=downscale_ops[7],
+        blocks[7] = generator_builder.get_intermediate_block(
+            input_channels=512,
             filters=512,
-            use_activation=True,
-            use_normalization=False
+            use_dropout=True,
+            submodule=blocks[8]
         )
 
-        upscale_ops = {
-            # Output is 64x smaller
-            7: upscale_block(
-                input_op=innermost_layer, skip_input=downscale_ops[7], filters=512, use_dropout=True)
-        }
+        blocks[6] = generator_builder.get_intermediate_block(
+            input_channels=512,
+            filters=512,
+            use_dropout=True,
+            submodule=blocks[7]
+        )
 
-        # # Output is 64x smaller
-        upscale_ops[6] = upscale_block(
-            input_op=upscale_ops[7], skip_input=downscale_ops[6], filters=512, use_dropout=True)
+        blocks[5] = generator_builder.get_intermediate_block(
+            input_channels=256,
+            filters=512,
+            use_dropout=True,
+            submodule=blocks[6]
+        )
 
-        # Output is 32x smaller
-        upscale_ops[5] = upscale_block(
-            input_op=upscale_ops[6], skip_input=downscale_ops[5], filters=512, use_dropout=True)
+        blocks[4] = generator_builder.get_intermediate_block(
+            input_channels=128,
+            filters=256,
+            use_dropout=False,
+            submodule=blocks[5]
+        )
 
-        for index, filters_count in enumerate([512, 256, 128, 64]):
+        blocks[3] = generator_builder.get_intermediate_block(
+            input_channels=64,
+            filters=128,
+            use_dropout=False,
+            submodule=blocks[4]
+        )
 
-            upscale_ops[4 - index] = upscale_block(
-                input_op=upscale_ops[5 - index],
-                skip_input=downscale_ops[4 - index],
-                filters=filters_count,
-                use_dropout=False
-            )
+        blocks[2] = generator_builder.get_intermediate_block(
+            input_channels=64,
+            filters=64,
+            use_dropout=False,
+            submodule=blocks[3]
+        )
 
-        x = tf.keras.layers.ReLU()(upscale_ops[1])
+        outermost_block = generator_builder.get_outermost_block(submodule=blocks[2])
 
-        # Output is same as input
-        output_op = tf.keras.layers.Conv2DTranspose(
-            filters=3,
-            kernel_size=4,
-            strides=(2, 2),
-            padding="same",
-            activation="tanh")(x)
-
-        model = tf.keras.models.Model(input_op, output_op)
-
-        # Compile model so we can save it without keras throwing warnings
-        model.compile()
-
-        return model
+        outermost_block.compile()
+        return outermost_block
 
     def _get_discriminator(self) -> tf.keras.Model:
         """
