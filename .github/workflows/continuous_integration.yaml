@@ -18,12 +18,12 @@ jobs:
   run_commit_stage_in_container:
     runs-on: ubuntu-20.04
     container:
-      image: tensorflow/tensorflow:2.11.0-gpu
+      image: tensorflow/tensorflow:2.15.0-gpu
     steps:
       - uses: actions/checkout@v2
       - name: install dependencies
         run: |
-          apt install -y libcairo2-dev libgl1 && pip install -r requirements.txt
+          apt update && apt install -y libcairo2-dev libgl1 graphviz && pip install -r requirements.txt
       - name: run unit tests
         run: invoke tests.unit-tests
       - name: run static code analysis
