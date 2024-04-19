@@ -59,6 +59,7 @@ class TestPix2Pix:
         model = net.ml.Pix2PixModel(
             discriminator_patch_shape=(1, input_data.shape[1] // 8, input_data.shape[2] // 8),
             batch_size=input_data.shape[0],
+            learning_rate=0.0002
         )
 
         model.compile()

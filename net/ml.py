@@ -16,12 +16,144 @@ import net.processing
 import net.utilities
 
 
+class GeneratorBuilder:
+    """
+    Class for building various pieces of pix2pix generator
+    """
+
+    def get_innermost_block(self, input_channels, filters) -> tf.keras.Model:
+        """
+        Function to build innermost block model
+        """
+
+        input_op = tf.keras.layers.Input(
+            shape=(None, None, input_channels),
+            name="innermost_input"
+        )
+
+        x = self.downscale_block(
+            input_op=input_op,
+            filters=filters,
+            use_normalization=False,
+            model_name="innermost_block")
+
+        x = self.upscale_block(
+            input_op=x,
+            filters=input_channels,
+            use_dropout=False,
+            model_name="innermost_block")
+
+        output_op = tf.keras.layers.Concatenate(name="innermost_output")([x, input_op])
+
+        return tf.keras.Model(inputs=input_op, outputs=output_op, name="innermost_model")
+
+    def get_outermost_block(self, submodule: tf.keras.Model) -> tf.keras.Model:
+        """
+        Function to build outermost block model
+        """
+
+        input_op = tf.keras.layers.Input(shape=(None, None, 3), name="outermost_input")
+
+        x = tf.keras.layers.Conv2D(filters=64, kernel_size=4, strides=(2, 2), padding="same")(input_op)
+        x = submodule(x)
+        x = tf.keras.layers.ReLU()(x)
+
+        # Output is same as input
+        output_op = tf.keras.layers.Conv2DTranspose(
+            filters=3,
+            kernel_size=4,
+            strides=(2, 2),
+            padding="same",
+            activation="tanh",
+            name="outermost_conv2D_transpose"
+        )(x)
+
+        return tf.keras.models.Model(input_op, output_op, name="outermost_model")
+
+    def get_intermediate_block(
+            self, input_channels, filters, use_dropout,
+            submodule: tf.keras.Model, block_id: int) -> tf.keras.Model:
+        """
+        Function to build intermediate block model
+
+        Returns:
+            tf.keras.Model: keras model for the block
+        """
+
+        input_op = tf.keras.layers.Input(
+            shape=(None, None, input_channels),
+            name=f"intermediate_input_{block_id}")
+
+        x = self.downscale_block(
+            input_op=input_op,
+            filters=filters,
+            use_normalization=True,
+            model_name=f"block_{block_id}")
+
+        x = submodule(x)
+
+        upscale_op = self.upscale_block(
+            input_op=x,
+            filters=input_channels,
+            use_dropout=use_dropout,
+            model_name=f"block_{block_id}")
+
+        output_op = tf.keras.layers.Concatenate(name=f"intermediate_output_{block_id}")(
+            [upscale_op, input_op])
+
+        return tf.keras.Model(inputs=input_op, outputs=output_op, name=f"intermediate_block_{block_id}")
+
+    def downscale_block(self, input_op, filters: int, use_normalization: bool, model_name: str):
+        """
+        Downscale block
+        """
+
+        x = tf.keras.layers.LeakyReLU(alpha=0.2, name=f"{model_name}_down_relu")(input_op)
+
+        x = tf.keras.layers.Conv2D(
+            filters=filters, kernel_size=4, strides=(2, 2),
+            padding="same", name=f"{model_name}_downconv",
+            use_bias=False
+        )(x)
+
+        if use_normalization is True:
+            x = tf.keras.layers.BatchNormalization(momentum=0.1, name=f"{model_name}_down_normalization")(x)
+
+        return x
+
+    def upscale_block(self, input_op, filters: int, use_dropout: bool, model_name: str):
+        """
+        Upscale block
+        """
+
+        x = tf.keras.layers.ReLU(name=f"{model_name}_up_relu")(input_op)
+
+        x = tf.keras.layers.Conv2DTranspose(
+            filters=filters,
+            kernel_size=4,
+            strides=(2, 2),
+            padding="same",
+            name=f"{model_name}_upconv",
+            use_bias=False
+        )(x)
+
+        x = tf.keras.layers.BatchNormalization(momentum=0.1, name=f"{model_name}_up_normalization")(x)
+
+        if use_dropout is True:
+            x = tf.keras.layers.Dropout(rate=0.5, name=f"{model_name}_dropout")(x)
+
+        return x
+
+
 class Pix2PixModel(tf.keras.Model):
     """
     Pix2Pix model
     """
 
-    def __init__(self, discriminator_patch_shape: typing.Tuple[int], batch_size: int) -> None:
+    def __init__(
+            self, discriminator_patch_shape: typing.Tuple[int],
+            batch_size: int,
+            learning_rate: float) -> None:
         """
         Constructor
 
@@ -49,8 +181,8 @@ class Pix2PixModel(tf.keras.Model):
             batch_size=batch_size
         )
 
-        self.discriminator_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0002, beta_1=0.5)
-        self.generator_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0002, beta_1=0.5)
+        self.discriminator_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.5)
+        self.generator_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.5)
 
     def call(self, *args, **kwargs):
         """
@@ -60,114 +192,70 @@ class Pix2PixModel(tf.keras.Model):
 
     def _get_generator(self) -> tf.keras.Model:
         """
-        Get pixp2pix generator model
+        Get generator model
+
+        Returns:
+            tf.keras.Model: generator model
         """
 
-        input_op = tf.keras.layers.Input(shape=(None, None, 3))
+        generator_builder = GeneratorBuilder()
 
-        x = tf.keras.layers.Conv2D(filters=64, kernel_size=4, strides=(2, 2), padding="same")(input_op)
-
-        def downscale_block(input_op, filters: int, use_activation: bool, use_normalization: bool):
-            """
-            Downscale block
-            """
-
-            x = input_op
-
-            if use_activation is True:
-                x = tf.keras.layers.LeakyReLU(alpha=0.2)(x)
-
-            x = tf.keras.layers.Conv2D(filters=filters, kernel_size=4, strides=(2, 2), padding="same")(input_op)
-
-            if use_normalization is True:
-                x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
-
-            return x
-
-        def upscale_block(input_op, skip_input: bool, filters: int, use_dropout: bool):
-            """
-            Upscale block
-            """
-
-            x = tf.keras.layers.ReLU()(input_op)
-
-            x = tf.keras.layers.Conv2DTranspose(
-                filters=filters,
-                kernel_size=4,
-                strides=(2, 2),
-                padding="same")(x)
-
-            x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
-
-            if use_dropout is True:
-                x = tf.keras.layers.Dropout(rate=0.5)(x)
-
-            x = tf.keras.layers.Concatenate()([x, skip_input])
-
-            return x
-
-        downscale_ops = {
-            # Output is 2x smaller
-            1: downscale_block(input_op=input_op, filters=64, use_activation=False, use_normalization=False)
+        blocks = {
+            8: generator_builder.get_innermost_block(input_channels=512, filters=512)
         }
 
-        filters_counts = [128, 256, 512, 512, 512, 512]
-
-        for index, filters_count in enumerate(filters_counts):
-
-            downscale_ops[index + 2] = downscale_block(
-                input_op=downscale_ops[index + 1],
-                filters=filters_count,
-                use_activation=True,
-                use_normalization=True
-            )
-
-        innermost_layer = downscale_block(
-            input_op=downscale_ops[7],
+        blocks[7] = generator_builder.get_intermediate_block(
+            input_channels=512,
             filters=512,
-            use_activation=True,
-            use_normalization=False
+            use_dropout=True,
+            submodule=blocks[8],
+            block_id=7
         )
 
-        upscale_ops = {
-            # Output is 64x smaller
-            7: upscale_block(
-                input_op=innermost_layer, skip_input=downscale_ops[7], filters=512, use_dropout=True)
-        }
+        blocks[6] = generator_builder.get_intermediate_block(
+            input_channels=512,
+            filters=512,
+            use_dropout=True,
+            submodule=blocks[7],
+            block_id=6
+        )
 
-        # # Output is 64x smaller
-        upscale_ops[6] = upscale_block(
-            input_op=upscale_ops[7], skip_input=downscale_ops[6], filters=512, use_dropout=True)
+        blocks[5] = generator_builder.get_intermediate_block(
+            input_channels=512,
+            filters=512,
+            use_dropout=True,
+            submodule=blocks[6],
+            block_id=5
+        )
 
-        # Output is 32x smaller
-        upscale_ops[5] = upscale_block(
-            input_op=upscale_ops[6], skip_input=downscale_ops[5], filters=512, use_dropout=True)
+        blocks[4] = generator_builder.get_intermediate_block(
+            input_channels=256,
+            filters=512,
+            use_dropout=False,
+            submodule=blocks[5],
+            block_id=4
+        )
 
-        for index, filters_count in enumerate([512, 256, 128, 64]):
+        blocks[3] = generator_builder.get_intermediate_block(
+            input_channels=128,
+            filters=256,
+            use_dropout=False,
+            submodule=blocks[4],
+            block_id=3
+        )
 
-            upscale_ops[4 - index] = upscale_block(
-                input_op=upscale_ops[5 - index],
-                skip_input=downscale_ops[4 - index],
-                filters=filters_count,
-                use_dropout=False
-            )
+        blocks[2] = generator_builder.get_intermediate_block(
+            input_channels=64,
+            filters=128,
+            use_dropout=False,
+            submodule=blocks[3],
+            block_id=2
+        )
 
-        x = tf.keras.layers.ReLU()(upscale_ops[1])
+        outermost_block = generator_builder.get_outermost_block(submodule=blocks[2])
+        outermost_block.compile()
 
-        # Output is same as input
-        output_op = tf.keras.layers.Conv2DTranspose(
-            filters=3,
-            kernel_size=4,
-            strides=(2, 2),
-            padding="same",
-            activation="tanh")(x)
-
-        model = tf.keras.models.Model(input_op, output_op)
-
-        # Compile model so we can save it without keras throwing warnings
-        model.compile()
-
-        return model
+        return outermost_block
 
     def _get_discriminator(self) -> tf.keras.Model:
         """
@@ -180,7 +268,9 @@ class Pix2PixModel(tf.keras.Model):
             """
 
             x = tf.keras.layers.Conv2D(
-                filters=filters, kernel_size=4, strides=(stride, stride), padding="same")(input_op)
+                filters=filters, kernel_size=4, strides=(stride, stride), padding="same",
+                use_bias=False
+            )(input_op)
 
             if use_normalization is True:
                 x = tf.keras.layers.BatchNormalization(momentum=0.1)(x)
@@ -201,7 +291,9 @@ class Pix2PixModel(tf.keras.Model):
         x = get_discriminator_block(input_op=x, filters=256, stride=2, use_normalization=True)
         x = get_discriminator_block(input_op=x, filters=512, stride=1, use_normalization=True)
 
-        output_op = tf.keras.layers.Conv2D(filters=1, kernel_size=4, strides=(1, 1), padding="same")(x)
+        output_op = tf.keras.layers.Conv2D(
+            filters=1, kernel_size=4, strides=(1, 1), padding="same"
+        )(x)
 
         return tf.keras.models.Model([source_image_input_op, target_image_input_op], output_op)
 
@@ -245,9 +337,11 @@ class Pix2PixModel(tf.keras.Model):
                 [source_images, generated_images],
                 training=False)
 
-            discriminator_fooling_loss = discriminator_loss_op(all_ones_patch, discriminator_predictions)
+            discriminator_fooling_loss = discriminator_loss_op(
+                y_true=all_ones_patch, y_pred=discriminator_predictions)
 
-            image_similarity_loss = image_condition_loss_op(target_images, generated_images)
+            image_similarity_loss = image_condition_loss_op(
+                y_true=target_images, y_pred=generated_images)
 
             return discriminator_fooling_loss + (100.0 * image_similarity_loss)
 
@@ -325,8 +419,11 @@ class Pix2PixModel(tf.keras.Model):
                 target_images=target_images
             )
 
-        self.discriminator_optimizer.minimize(
-            discriminator_loss, self.discriminator.trainable_variables, tape=discriminator_tape)
+        discriminator_gradients = discriminator_tape.gradient(
+            discriminator_loss, self.discriminator.trainable_variables)
+
+        self.discriminator_optimizer.apply_gradients(
+            zip(discriminator_gradients, self.discriminator.trainable_variables))
 
         self.discriminator.trainable = False
         self.generator.trainable = True
@@ -338,8 +435,11 @@ class Pix2PixModel(tf.keras.Model):
                 target_images=target_images
             )
 
-        self.generator_optimizer.minimize(
-            generator_loss, self.generator.trainable_variables, tape=generator_tape)
+        generator_gradients = generator_tape.gradient(
+            generator_loss, self.generator.trainable_variables)
+
+        self.generator_optimizer.apply_gradients(
+            zip(generator_gradients, self.generator.trainable_variables))
 
         self.discriminator.trainable = False
         self.generator.trainable = False
@@ -590,7 +690,7 @@ class VisualizationArchivesBuilderCallback(tf.keras.callbacks.Callback):
                         tar.addfile(tarinfo=tar_file_map["tar_info"], fileobj=tar_file_map["bytes"])
 
                 # Move temporary file to target path
-                os.rename(temporary_archive_path, self.tar_data["base_archive_path"])
+                shutil.move(temporary_archive_path, self.tar_data["base_archive_path"])
 
             # Reset batch counter
             self.counters_map["batch"] = 0
@@ -598,3 +698,25 @@ class VisualizationArchivesBuilderCallback(tf.keras.callbacks.Callback):
         else:
 
             self.counters_map["batch"] += 1
+
+
+class GANLearningRateSchedulerCallback(tf.keras.callbacks.Callback):
+    """
+    Learning rate scheduler callback for a GAN model
+    """
+
+    def __init__(self, generator_optimizer, discriminator_opitimizer, base_learning_rate: float):
+
+        self.generator_optimizer = generator_optimizer
+        self.discriminator_opitimizer = discriminator_opitimizer
+        self.base_learning_rate = base_learning_rate
+
+    def on_epoch_end(self, epoch: int, logs=None):
+        """
+        Function to be called at the end of each epoch
+        """
+
+        learning_rate = self.base_learning_rate * (1.0 - max(0, epoch + 1 - 100) / 101.0)
+
+        tf.keras.backend.set_value(self.generator_optimizer.lr, learning_rate)
+        tf.keras.backend.set_value(self.discriminator_opitimizer.lr, learning_rate)

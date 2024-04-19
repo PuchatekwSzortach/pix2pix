@@ -117,11 +117,14 @@ def train_maps_gan(_context, config_path):
     import os
 
     import box
+    import numpy as np
     import tensorflow as tf
 
     import net.data
     import net.ml
     import net.utilities
+
+    np.set_printoptions(suppress=True)
 
     config = box.Box(net.utilities.read_yaml(config_path))
 
@@ -177,6 +180,7 @@ def train_maps_gan(_context, config_path):
     pix2pix = net.ml.Pix2PixModel(
         discriminator_patch_shape=discriminator_patch_shape,
         batch_size=config.maps_model.batch_size,
+        learning_rate=config.maps_model.learning_rate
     )
 
     pix2pix.compile()
@@ -199,6 +203,11 @@ def train_maps_gan(_context, config_path):
                 logging_interval=200,
                 max_archive_size_in_bytes=100 * 1024 * 1024,
                 max_archives_count=10
+            ),
+            net.ml.GANLearningRateSchedulerCallback(
+                generator_optimizer=pix2pix.generator_optimizer,
+                discriminator_opitimizer=pix2pix.discriminator_optimizer,
+                base_learning_rate=config.maps_model.learning_rate
             )
         ]
     )
