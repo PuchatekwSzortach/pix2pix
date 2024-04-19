@@ -2,7 +2,7 @@ data_dir_on_host: "../../data/pix2pix"
 data_dir: "/data"
 
 logging_output_directory_on_host: "/tmp/pix2pix"
-logging_path: "/tmp/log.html"
+logging_path: "/output/log.html"
 
 facades_dataset:
   training_data_dir: "/data/facades/train"
@@ -23,6 +23,7 @@ facades_model:
 maps_dataset:
   training_data_dir: "/data/maps/train"
   validation_data_dir: "/data/maps/val"
+  test_data_dir: "/data/maps/test"
 
 maps_model:
   batch_size: 1
@@ -34,3 +35,5 @@ maps_model:
     resized_image_shape: [286, 286]
 
   generator_model_path: "/data/maps_generator.h5"
+
+  learning_rate: 0.0002
