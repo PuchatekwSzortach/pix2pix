@@ -43,7 +43,8 @@ class GeneratorBuilder:
             use_dropout=False,
             model_name="innermost_block")
 
-        output_op = tf.keras.layers.Concatenate(name="innermost_output")([x, input_op])
+        output_op = tf.keras.layers.Concatenate(name="innermost_output")(
+            [input_op, x])
 
         return tf.keras.Model(inputs=input_op, outputs=output_op, name="innermost_model")
 
@@ -99,7 +100,7 @@ class GeneratorBuilder:
             model_name=f"block_{block_id}")
 
         output_op = tf.keras.layers.Concatenate(name=f"intermediate_output_{block_id}")(
-            [upscale_op, input_op])
+            [input_op, upscale_op])
 
         return tf.keras.Model(inputs=input_op, outputs=output_op, name=f"intermediate_block_{block_id}")
 
@@ -181,8 +182,11 @@ class Pix2PixModel(tf.keras.Model):
             batch_size=batch_size
         )
 
-        self.discriminator_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.5)
-        self.generator_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.5)
+        self.discriminator_optimizer = tf.keras.optimizers.Adam(
+            learning_rate=learning_rate, beta_1=0.5, beta_2=0.999)
+
+        self.generator_optimizer = tf.keras.optimizers.Adam(
+            learning_rate=learning_rate, beta_1=0.5, beta_2=0.999)
 
     def call(self, *args, **kwargs):
         """
@@ -284,7 +288,8 @@ class Pix2PixModel(tf.keras.Model):
         source_image_input_op = tf.keras.layers.Input(image_shape)
         target_image_input_op = tf.keras.layers.Input(image_shape)
 
-        combined_images_op = tf.keras.layers.Concatenate(axis=-1)([source_image_input_op, target_image_input_op])
+        combined_images_op = tf.keras.layers.Concatenate(axis=-1)(
+            [source_image_input_op, target_image_input_op])
 
         x = get_discriminator_block(input_op=combined_images_op, filters=64, stride=2, use_normalization=False)
         x = get_discriminator_block(input_op=x, filters=128, stride=2, use_normalization=True)
@@ -366,13 +371,6 @@ class Pix2PixModel(tf.keras.Model):
         all_ones_patch = tf.repeat(tf.ones(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
         all_zeros_patch = tf.repeat(tf.zeros(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
 
-        labels = tf.concat(
-            [
-                all_ones_patch,
-                all_zeros_patch
-            ], axis=0
-        )
-
         base_loss_op = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
         @tf.function
@@ -390,15 +388,23 @@ class Pix2PixModel(tf.keras.Model):
 
             generated_images = generator(source_images, training=False)
 
-            discriminator_predictions = discriminator(
-                [
-                    tf.concat([source_images, source_images], axis=0),
-                    tf.concat([target_images, generated_images], axis=0)
-                ],
+            discriminator_predictions_on_generated_images = discriminator(
+                [source_images, generated_images],
                 training=True
             )
 
-            return base_loss_op(labels, discriminator_predictions)
+            discriminator_loss_on_generated_images = base_loss_op(
+                all_zeros_patch, discriminator_predictions_on_generated_images)
+
+            discriminator_predictions_on_real_images = discriminator(
+                [source_images, target_images],
+                training=True
+            )
+
+            discriminator_loss_on_real_images = base_loss_op(
+                all_ones_patch, discriminator_predictions_on_real_images)
+
+            return 0.5 * (discriminator_loss_on_generated_images + discriminator_loss_on_real_images)
 
         return loss_op
 
