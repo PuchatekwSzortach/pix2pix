@@ -28,7 +28,7 @@ def train_facades_gan(_context, config_path):
     config = box.Box(net.utilities.read_yaml(config_path))
 
     training_data_loader = net.data.TwinImagesDataLoader(
-        data_directory=config.facades_dataset.training_data_dir,
+        data_directory=config.facades_dataset.training_and_validation_data_dir,
         batch_size=config.facades_model.batch_size,
         shuffle=True,
         is_source_on_left_side=False,
@@ -50,7 +50,7 @@ def train_facades_gan(_context, config_path):
     ).prefetch(32)
 
     validation_data_loader = net.data.TwinImagesDataLoader(
-        data_directory=config.facades_dataset.validation_data_dir,
+        data_directory=config.facades_dataset.test_data_dir,
         batch_size=config.facades_model.batch_size,
         shuffle=True,
         is_source_on_left_side=False,
@@ -76,6 +76,7 @@ def train_facades_gan(_context, config_path):
     pix2pix = net.ml.Pix2PixModel(
         discriminator_patch_shape=discriminator_patch_shape,
         batch_size=config.facades_model.batch_size,
+        learning_rate=config.facades_model.learning_rate
     )
 
     pix2pix.compile()
@@ -129,7 +130,7 @@ def train_maps_gan(_context, config_path):
     config = box.Box(net.utilities.read_yaml(config_path))
 
     training_data_loader = net.data.TwinImagesDataLoader(
-        data_directory=config.maps_dataset.training_data_dir,
+        data_directory=config.maps_dataset.training_and_validation_data_dir,
         batch_size=config.maps_model.batch_size,
         shuffle=True,
         is_source_on_left_side=True,
@@ -151,7 +152,7 @@ def train_maps_gan(_context, config_path):
     ).prefetch(32)
 
     validation_data_loader = net.data.TwinImagesDataLoader(
-        data_directory=config.maps_dataset.validation_data_dir,
+        data_directory=config.maps_dataset.test_data_dir,
         batch_size=config.maps_model.batch_size,
         shuffle=True,
         is_source_on_left_side=True,
@@ -207,7 +208,8 @@ def train_maps_gan(_context, config_path):
             net.ml.GANLearningRateSchedulerCallback(
                 generator_optimizer=pix2pix.generator_optimizer,
                 discriminator_opitimizer=pix2pix.discriminator_optimizer,
-                base_learning_rate=config.maps_model.learning_rate
+                base_learning_rate=config.maps_model.learning_rate,
+                epochs_count=config.maps_model.epochs
             )
         ]
     )

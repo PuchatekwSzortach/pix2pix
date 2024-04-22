@@ -371,6 +371,13 @@ class Pix2PixModel(tf.keras.Model):
         all_ones_patch = tf.repeat(tf.ones(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
         all_zeros_patch = tf.repeat(tf.zeros(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
 
+        labels = tf.concat(
+            [
+                all_ones_patch,
+                all_zeros_patch
+            ], axis=0
+        )
+
         base_loss_op = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
         @tf.function
@@ -388,23 +395,15 @@ class Pix2PixModel(tf.keras.Model):
 
             generated_images = generator(source_images, training=False)
 
-            discriminator_predictions_on_generated_images = discriminator(
-                [source_images, generated_images],
+            discriminator_predictions = discriminator(
+                [
+                    tf.concat([source_images, source_images], axis=0),
+                    tf.concat([target_images, generated_images], axis=0)
+                ],
                 training=True
             )
 
-            discriminator_loss_on_generated_images = base_loss_op(
-                all_zeros_patch, discriminator_predictions_on_generated_images)
-
-            discriminator_predictions_on_real_images = discriminator(
-                [source_images, target_images],
-                training=True
-            )
-
-            discriminator_loss_on_real_images = base_loss_op(
-                all_ones_patch, discriminator_predictions_on_real_images)
-
-            return 0.5 * (discriminator_loss_on_generated_images + discriminator_loss_on_real_images)
+            return base_loss_op(labels, discriminator_predictions)
 
         return loss_op
 
@@ -711,18 +710,24 @@ class GANLearningRateSchedulerCallback(tf.keras.callbacks.Callback):
     Learning rate scheduler callback for a GAN model
     """
 
-    def __init__(self, generator_optimizer, discriminator_opitimizer, base_learning_rate: float):
+    def __init__(
+            self, generator_optimizer, discriminator_opitimizer, base_learning_rate: float,
+            epochs_count: int):
 
         self.generator_optimizer = generator_optimizer
         self.discriminator_opitimizer = discriminator_opitimizer
         self.base_learning_rate = base_learning_rate
+        self.epochs_count = epochs_count
 
     def on_epoch_end(self, epoch: int, logs=None):
         """
         Function to be called at the end of each epoch
         """
 
-        learning_rate = self.base_learning_rate * (1.0 - max(0, epoch + 1 - 100) / 101.0)
+        half_epochs_count = float(self.epochs_count / 2.0)
+
+        learning_rate = self.base_learning_rate * \
+            (1.0 - max(0, epoch + 1.0 - half_epochs_count) / (half_epochs_count + 1.0))
 
         tf.keras.backend.set_value(self.generator_optimizer.lr, learning_rate)
         tf.keras.backend.set_value(self.discriminator_opitimizer.lr, learning_rate)

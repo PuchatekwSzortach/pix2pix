@@ -59,14 +59,36 @@ class TwinImagesDataLoader:
 
         self.use_augmentations = use_augmentations
 
-        self.augmentation_pipeline = imgaug.augmenters.Sequential([
-            imgaug.augmenters.Fliplr(p=0.5),
+        self.augmentation_pipeline = self._get_augmentation_pipeline(augmentation_parameters) \
+            if use_augmentations is True else None
+
+    def _get_augmentation_pipeline(self, augmentation_parameters: dict) -> imgaug.augmenters.Sequential:
+        """
+        Get augmentation pipeline
+
+        Args:
+            augmentation_parameters (dict): augmentation parameters
+
+        Returns:
+            imgaug.augmenters.Sequential: augmentation pipeline
+        """
+
+        augmenters = [
+            imgaug.augmenters.Fliplr(p=0.5)
+        ]
+
+        if augmentation_parameters.get("use_up_down_flip", False) is True:
+            augmenters.append(imgaug.augmenters.Flipud(p=0.5))
+
+        augmenters.extend([
             imgaug.augmenters.Resize(augmentation_parameters["resized_image_shape"]),
             imgaug.augmenters.CropToFixedSize(
                 width=augmentation_parameters["image_shape"][0],
                 height=augmentation_parameters["image_shape"][1]
             )
-        ]) if use_augmentations is True else None
+        ])
+
+        return imgaug.augmenters.Sequential(augmenters)
 
     def __len__(self) -> int:
         """
