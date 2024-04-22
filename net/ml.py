@@ -43,7 +43,8 @@ class GeneratorBuilder:
             use_dropout=False,
             model_name="innermost_block")
 
-        output_op = tf.keras.layers.Concatenate(name="innermost_output")([x, input_op])
+        output_op = tf.keras.layers.Concatenate(name="innermost_output")(
+            [input_op, x])
 
         return tf.keras.Model(inputs=input_op, outputs=output_op, name="innermost_model")
 
@@ -99,7 +100,7 @@ class GeneratorBuilder:
             model_name=f"block_{block_id}")
 
         output_op = tf.keras.layers.Concatenate(name=f"intermediate_output_{block_id}")(
-            [upscale_op, input_op])
+            [input_op, upscale_op])
 
         return tf.keras.Model(inputs=input_op, outputs=output_op, name=f"intermediate_block_{block_id}")
 
@@ -181,8 +182,11 @@ class Pix2PixModel(tf.keras.Model):
             batch_size=batch_size
         )
 
-        self.discriminator_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.5)
-        self.generator_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.5)
+        self.discriminator_optimizer = tf.keras.optimizers.Adam(
+            learning_rate=learning_rate, beta_1=0.5, beta_2=0.999)
+
+        self.generator_optimizer = tf.keras.optimizers.Adam(
+            learning_rate=learning_rate, beta_1=0.5, beta_2=0.999)
 
     def call(self, *args, **kwargs):
         """
@@ -284,7 +288,8 @@ class Pix2PixModel(tf.keras.Model):
         source_image_input_op = tf.keras.layers.Input(image_shape)
         target_image_input_op = tf.keras.layers.Input(image_shape)
 
-        combined_images_op = tf.keras.layers.Concatenate(axis=-1)([source_image_input_op, target_image_input_op])
+        combined_images_op = tf.keras.layers.Concatenate(axis=-1)(
+            [source_image_input_op, target_image_input_op])
 
         x = get_discriminator_block(input_op=combined_images_op, filters=64, stride=2, use_normalization=False)
         x = get_discriminator_block(input_op=x, filters=128, stride=2, use_normalization=True)
@@ -705,18 +710,24 @@ class GANLearningRateSchedulerCallback(tf.keras.callbacks.Callback):
     Learning rate scheduler callback for a GAN model
     """
 
-    def __init__(self, generator_optimizer, discriminator_opitimizer, base_learning_rate: float):
+    def __init__(
+            self, generator_optimizer, discriminator_opitimizer, base_learning_rate: float,
+            epochs_count: int):
 
         self.generator_optimizer = generator_optimizer
         self.discriminator_opitimizer = discriminator_opitimizer
         self.base_learning_rate = base_learning_rate
+        self.epochs_count = epochs_count
 
     def on_epoch_end(self, epoch: int, logs=None):
         """
         Function to be called at the end of each epoch
         """
 
-        learning_rate = self.base_learning_rate * (1.0 - max(0, epoch + 1 - 100) / 101.0)
+        half_epochs_count = float(self.epochs_count / 2.0)
+
+        learning_rate = self.base_learning_rate * \
+            (1.0 - max(0, epoch + 1.0 - half_epochs_count) / (half_epochs_count + 1.0))
 
         tf.keras.backend.set_value(self.generator_optimizer.lr, learning_rate)
         tf.keras.backend.set_value(self.discriminator_opitimizer.lr, learning_rate)
