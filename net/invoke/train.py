@@ -206,8 +206,8 @@ def train_maps_gan(_context, config_path):
                 max_archives_count=10
             ),
             net.ml.GANLearningRateSchedulerCallback(
-                generator_optimizer=pix2pix.generator_optimizer,
-                discriminator_opitimizer=pix2pix.discriminator_optimizer,
+                generator_optimizer=pix2pix.optimizers_map["generator_optimizer"],
+                discriminator_opitimizer=pix2pix.optimizers_map["discriminator_optimizer"],
                 base_learning_rate=config.maps_model.learning_rate,
                 epochs_count=config.maps_model.epochs
             )
