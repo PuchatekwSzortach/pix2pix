@@ -168,25 +168,39 @@ class Pix2PixModel(tf.keras.Model):
         self.generator = self._get_generator()
         self.discriminator = self._get_discriminator()
 
-        self.generator_loss_op = self._get_generator_loss_op(
-            discriminator=self.discriminator,
-            generator=self.generator,
-            patch_shape=discriminator_patch_shape,
-            batch_size=batch_size
-        )
+        self.losses_map = {
+            "generator_loss_op": self._get_generator_loss_op(),
+            "discriminator_loss_op": self._get_discriminator_loss_op()
+        }
 
-        self.discriminator_loss_op = self._get_discriminator_loss_op(
-            discriminator=self.discriminator,
-            generator=self.generator,
-            patch_shape=discriminator_patch_shape,
-            batch_size=batch_size
-        )
+        self.discriminator_labels_map = {
+            "all_ones": tf.repeat(
+                tf.ones(discriminator_patch_shape, dtype=tf.float32),
+                repeats=batch_size, axis=0
+            ),
+            "half_ones_half_zeros": tf.concat(
+                [
+                    tf.repeat(
+                        tf.ones(discriminator_patch_shape, dtype=tf.float32),
+                        repeats=batch_size, axis=0
+                    ),
+                    tf.repeat(
+                        tf.zeros(discriminator_patch_shape, dtype=tf.float32),
+                        repeats=batch_size, axis=0
+                    )
+                ], axis=0
+            )
+        }
 
-        self.discriminator_optimizer = tf.keras.optimizers.Adam(
-            learning_rate=learning_rate, beta_1=0.5, beta_2=0.999)
+        self.discriminator_patch_shape = discriminator_patch_shape
+        self.batch_size = batch_size
 
-        self.generator_optimizer = tf.keras.optimizers.Adam(
-            learning_rate=learning_rate, beta_1=0.5, beta_2=0.999)
+        self.optimizers_map = {
+            "generator_optimizer": tf.keras.optimizers.Adam(
+                learning_rate=learning_rate, beta_1=0.5, beta_2=0.999),
+            "discriminator_optimizer": tf.keras.optimizers.Adam(
+                learning_rate=learning_rate, beta_1=0.5, beta_2=0.999)
+        }
 
     def call(self, *args, **kwargs):
         """
@@ -302,17 +316,9 @@ class Pix2PixModel(tf.keras.Model):
 
         return tf.keras.models.Model([source_image_input_op, target_image_input_op], output_op)
 
-    def _get_generator_loss_op(
-            self, discriminator: tf.keras.Model, generator: tf.keras.Model,
-            patch_shape: typing.Tuple[int], batch_size: int) -> tf.Tensor:
+    def _get_generator_loss_op(self) -> tf.Tensor:
         """
         Get pix2pix generator loss operation
-
-        Args:
-            discriminator (tf.keras.Model): pix2pix discriminator
-            generator (tf.keras.Model): pix2pix generator
-            patch_shape (typing.Tuple[int]): shape of discriminator's output for data on which model is to be trained
-            batch_size (int): batch size
 
         Returns:
             tf.Tensor: generator loss operation
@@ -321,89 +327,54 @@ class Pix2PixModel(tf.keras.Model):
         discriminator_loss_op = tf.keras.losses.BinaryCrossentropy(from_logits=True)
         image_condition_loss_op = tf.keras.losses.MeanAbsoluteError()
 
-        all_ones_patch = tf.repeat(tf.ones(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
-
         @tf.function
-        def loss_op(source_images, target_images):
+        def loss_op(labels_op, target_images_op, generated_images_op, discriminator_predictions_op):
             """
             Generator loss op
 
             Args:
-                source_images (tf.Tensor): tensor with source images
+                labels_op (tf.Tensor): labels
                 target_images (tf.Tensor): target with target images
+                generated_images_op (tf.Tensor): tensor with generated images
+                discriminator_predictions_op (tf.Tensor): discriminator predictions
 
             Returns:
                 tf.Tensor: scalar loss
             """
 
-            generated_images = generator(source_images, training=True)
-
-            discriminator_predictions = discriminator(
-                [source_images, generated_images],
-                training=False)
-
             discriminator_fooling_loss = discriminator_loss_op(
-                y_true=all_ones_patch, y_pred=discriminator_predictions)
+                y_true=labels_op, y_pred=discriminator_predictions_op)
 
             image_similarity_loss = image_condition_loss_op(
-                y_true=target_images, y_pred=generated_images)
+                y_true=target_images_op, y_pred=generated_images_op)
 
             return discriminator_fooling_loss + (100.0 * image_similarity_loss)
 
         return loss_op
 
-    def _get_discriminator_loss_op(
-            self, discriminator: tf.keras.Model, generator: tf.keras.Model,
-            patch_shape: typing.Tuple[int], batch_size: int) -> tf.Tensor:
+    def _get_discriminator_loss_op(self) -> tf.Tensor:
         """
         Get pix2pix discriminator loss operation
-
-        Args:
-            discriminator (tf.keras.Model): pix2pix discriminator
-            generator (tf.keras.Model): pix2pix generator
-            patch_shape (typing.Tuple[int]): shape of discriminator's output for data on which model is to be trained
-            batch_size (int): batch size
 
         Returns:
             tf.Tensor: discriminator loss operation
         """
 
-        all_ones_patch = tf.repeat(tf.ones(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
-        all_zeros_patch = tf.repeat(tf.zeros(patch_shape, dtype=tf.float32), repeats=batch_size, axis=0)
-
-        labels = tf.concat(
-            [
-                all_ones_patch,
-                all_zeros_patch
-            ], axis=0
-        )
-
         base_loss_op = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
         @tf.function
-        def loss_op(source_images, target_images):
+        def loss_op(labels_op, discriminator_predictions_op):
             """
             Discriminator loss op
 
             Args:
-                source_images (tf.Tensor): tensor with source images
-                target_images (tf.Tensor): target with target images
+                discriminator_predictions (tf.Tensor): discriminator predictions
 
             Returns:
                 tf.Tensor: scalar loss
             """
 
-            generated_images = generator(source_images, training=False)
-
-            discriminator_predictions = discriminator(
-                [
-                    tf.concat([source_images, source_images], axis=0),
-                    tf.concat([target_images, generated_images], axis=0)
-                ],
-                training=True
-            )
-
-            return base_loss_op(labels, discriminator_predictions)
+            return base_loss_op(labels_op, discriminator_predictions_op)
 
         return loss_op
 
@@ -419,15 +390,24 @@ class Pix2PixModel(tf.keras.Model):
 
         with tf.GradientTape() as discriminator_tape:
 
-            discriminator_loss = self.discriminator_loss_op(
-                source_images=source_images,
-                target_images=target_images
+            generated_images = self.generator(source_images, training=False)
+
+            discriminator_predictions = self.discriminator(
+                [
+                    tf.concat([source_images, source_images], axis=0),
+                    tf.concat([target_images, generated_images], axis=0)
+                ],
+                training=True
             )
+
+            discriminator_loss = self.losses_map["discriminator_loss_op"](
+                labels_op=self.discriminator_labels_map["half_ones_half_zeros"],
+                discriminator_predictions_op=discriminator_predictions)
 
         discriminator_gradients = discriminator_tape.gradient(
             discriminator_loss, self.discriminator.trainable_variables)
 
-        self.discriminator_optimizer.apply_gradients(
+        self.optimizers_map["discriminator_optimizer"].apply_gradients(
             zip(discriminator_gradients, self.discriminator.trainable_variables))
 
         self.discriminator.trainable = False
@@ -435,15 +415,23 @@ class Pix2PixModel(tf.keras.Model):
 
         with tf.GradientTape() as generator_tape:
 
-            generator_loss = self.generator_loss_op(
-                source_images=source_images,
-                target_images=target_images
+            generated_images = self.generator(source_images, training=True)
+
+            discriminator_predictions = self.discriminator(
+                [source_images, generated_images],
+                training=False)
+
+            generator_loss = self.losses_map["generator_loss_op"](
+                labels_op=self.discriminator_labels_map["all_ones"],
+                target_images_op=target_images,
+                generated_images_op=generated_images,
+                discriminator_predictions_op=discriminator_predictions
             )
 
         generator_gradients = generator_tape.gradient(
             generator_loss, self.generator.trainable_variables)
 
-        self.generator_optimizer.apply_gradients(
+        self.optimizers_map["generator_optimizer"].apply_gradients(
             zip(generator_gradients, self.generator.trainable_variables))
 
         self.discriminator.trainable = False
